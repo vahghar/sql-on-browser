@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useSQL } from "@/hooks/useSql";
-import FileUpload from "@/components/fileUpload";
 import SchemaViewer from "@/components/schemaViewer";
 
 // Your existing SVG icons remain the same
@@ -21,7 +20,7 @@ const XMarkIcon = ({ className }: { className?: string }) => (
 
 export default function Home() {
   // Use our real SQL hook
-  const { loading, loadCSV, runQuery } = useSQL();
+  const { loadCSV, runQuery } = useSQL();
 
   // UI States
   const [file, setFile] = useState<File | null>(null);
@@ -31,43 +30,44 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
+
   // Handle file upload with real SQL processing
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const selectedFile = e.target.files?.[0];
-  if (selectedFile && selectedFile.name.endsWith('.csv')) {
-    setFile(selectedFile);
-    setResult(null);
-    setError(null);
-    setIsProcessing(true);
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile && selectedFile.name.endsWith('.csv')) {
+      setFile(selectedFile);
+      setResult(null);
+      setError(null);
+      setIsProcessing(true);
 
-    try {
-      const loadResult = await loadCSV(selectedFile);
-      console.log('Load result:', loadResult);
-      
-      if (loadResult.success) {
-        // The columns are now stored in the hook state
-        // Let's run a test query to verify everything works
-        const initialResult = runQuery("SELECT * FROM csv_data LIMIT 5;");
-        console.log('Initial query result:', initialResult);
-        
-        if (initialResult.error) {
-          setError(initialResult.error);
+      try {
+        const loadResult = await loadCSV(selectedFile);
+        console.log('Load result:', loadResult);
+
+        if (loadResult.success) {
+          // The columns are now stored in the hook state
+          // Let's run a test query to verify everything works
+          const initialResult = runQuery("SELECT * FROM csv_data LIMIT 5;");
+          console.log('Initial query result:', initialResult);
+
+          if (initialResult.error) {
+            setError(initialResult.error);
+          } else {
+            setResult(initialResult.values);
+            // Don't setColumns here - they come from the hook
+          }
         } else {
-          setResult(initialResult.values);
-          // Don't setColumns here - they come from the hook
+          setError(loadResult.error || "Failed to load file");
         }
-      } else {
-        setError(loadResult.error || "Failed to load file");
+      } catch (err: any) {
+        setError(err.message || "An unexpected error occurred");
+      } finally {
+        setIsProcessing(false);
       }
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred");
-    } finally {
-      setIsProcessing(false);
+    } else {
+      setError("Please upload a CSV file");
     }
-  } else {
-    setError("Please upload a CSV file");
-  }
-};
+  };
 
   // Run query with real SQL.js
   const executeQuery = () => {
@@ -124,7 +124,7 @@ export default function Home() {
             <span>Data<span className="text-emerald-600 dark:text-emerald-400">Forge</span></span>
           </div>
           <nav className="flex gap-6 text-sm font-medium text-zinc-600 dark:text-zinc-400">
-            <a href="#" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">github</a>
+            <a href="https://github.com/vahghar/sql-on-browser" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">github</a>
           </nav>
         </div>
       </header>
@@ -137,10 +137,11 @@ export default function Home() {
             Your CSVs, now powered by <span className="text-emerald-600 dark:text-emerald-400">SQL</span>.
           </h1>
           <p className="text-xl text-zinc-600 dark:text-zinc-400 leading-relaxed">
-            Instant data analysis in your browser. Zero setup. Total privacy.
+            Zero setup. Total privacy.
             Just drop your file and start querying.
           </p>
         </div>
+
 
         {/* --- Main App "Glass" Container --- */}
         <div className="relative rounded-3xl border border-zinc-200/50 dark:border-zinc-800/50 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-xl shadow-2xl shadow-zinc-200/50 dark:shadow-zinc-950/50 overflow-hidden">
@@ -289,7 +290,7 @@ export default function Home() {
                   <button
                     onClick={executeQuery}
                     disabled={isProcessing || !file}
-                    className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none"
+                    className="flex items-center cursor-pointer gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:pointer-events-none"
                   >
                     {isProcessing ? (
                       <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">

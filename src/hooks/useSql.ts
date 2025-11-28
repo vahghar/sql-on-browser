@@ -1,136 +1,125 @@
-'use client';
+"use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from "react";
+import Papa from "papaparse";
+import alasql from "alasql";
 
 export function useSQL() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
+  
+  // Ref for immediate access
+  const dataRef = useRef<any[]>([]);
 
-  // Simple CSV parser
-  const parseCSV = useCallback((csvText: string) => {
-    const lines = csvText.split('\n').filter(line => line.trim());
-    if (lines.length === 0) return { columns: [], data: [] };
-    
-    const headers = lines[0].split(',').map(h => h.trim());
-    const data = lines.slice(1).map(line => {
-      const values = line.split(',').map(v => v.trim());
-      const row: any = {};
-      headers.forEach((header, index) => {
-        row[header] = values[index] || '';
-      });
-      return row;
-    });
-    
-    return { columns: headers, data };
-  }, []);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   const loadCSV = useCallback(async (file: File): Promise<any> => {
     setLoading(true);
-    try {
-      // Read file
-      const text = await file.text();
-      const { columns: parsedColumns, data: parsedData } = parseCSV(text);
-      
-      console.log('Parsed columns:', parsedColumns);
-      console.log('Parsed data sample:', parsedData.slice(0, 2));
-      
-      setColumns(parsedColumns);
-      setData(parsedData);
-      
-      return { 
-        success: true, 
-        rowCount: parsedData.length, 
-        columns: parsedColumns 
-      };
-    } catch (error: any) {
-      console.error('Error loading file:', error);
-      return { 
-        success: false, 
-        error: error.message 
-      };
-    } finally {
-      setLoading(false);
-    }
-  }, [parseCSV]);
+    
+    // Reset states before loading new file
+    setData([]);
+    setColumns([]);
+    dataRef.current = [];
+
+    return new Promise((resolve) => {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        // NEW: Auto-detect the delimiter (comma, semicolon, pipe, etc.)
+        delimiter: "", 
+        
+        complete: (results) => {
+          let parsedData = results.data;
+          let parsedColumns = results.meta.fields || [];
+
+          // 1. Debugging: Log any issues found by the parser
+          if (results.errors && results.errors.length > 0) {
+            console.warn("CSV Parse Warnings:", results.errors);
+          }
+
+          // 2. Fatal Error Check: Did we get any data?
+          if (!parsedData || parsedData.length === 0) {
+            setLoading(false);
+            const errorMsg = results.errors.length > 0 
+              ? `Parse Error: ${results.errors[0].message}`
+              : "File appears empty or is not a valid text CSV.";
+            
+            resolve({ success: false, error: errorMsg });
+            return;
+          }
+
+          // 3. Fallback: If no headers found in meta, grab them from the first row
+          if (parsedColumns.length === 0 && parsedData.length > 0) {
+            const firstRow: any = parsedData[0];
+            if (firstRow && typeof firstRow === 'object') {
+              parsedColumns = Object.keys(firstRow);
+            }
+          }
+
+          // Success! Update everything
+          dataRef.current = parsedData;
+          setColumns(parsedColumns);
+          setData(parsedData);
+          setLoading(false);
+          
+          resolve({ success: true, rowCount: parsedData.length, columns: parsedColumns });
+        },
+        error: (error) => {
+          setLoading(false);
+          resolve({ success: false, error: `Read Error: ${error.message}` });
+        },
+      });
+    });
+  }, []);
 
   const runQuery = useCallback((query: string): any => {
-    console.log('Running query:', query);
-    console.log('Current data length:', data.length);
-    console.log('Current columns:', columns);
+    const currentData = dataRef.current;
 
-    if (data.length === 0) {
-      return { 
-        columns: [], 
-        values: [], 
-        error: 'No data loaded. Please upload a file first.' 
-      };
+    if (!currentData || currentData.length === 0) {
+      return { error: "No data loaded. Please upload a valid CSV file." };
     }
 
     try {
-      // Handle SELECT * queries with LIMIT
-      if (query.toLowerCase().includes('select *') && query.toLowerCase().includes('from')) {
-        const limitMatch = query.match(/limit\s+(\d+)/i);
-        const limit = limitMatch ? parseInt(limitMatch[1]) : 10;
-        
-        const limitedData = data.slice(0, limit);
-        const values = limitedData.map(row => 
-          columns.map(col => row[col] || '')
-        );
-        
-        return {
-          columns: columns,
-          values: values
-        };
+      alasql("DROP TABLE IF EXISTS csv_data");
+      alasql("CREATE TABLE csv_data");
+      alasql.tables["csv_data"].data = currentData;
+
+      const resultData = alasql(query);
+
+      if (!resultData || resultData.length === 0) {
+        return { columns: [], values: [] };
       }
+
+      // Robust column detection from result
+      const firstRow = resultData[0];
+      const resultColumns = firstRow ? Object.keys(firstRow) : [];
       
-      // Handle COUNT(*) queries
-      if (query.toLowerCase().includes('count(*)')) {
-        return {
-          columns: ['total_count'],
-          values: [[data.length]]
-        };
-      }
-      
-      // Handle specific column selection
-      if (query.toLowerCase().includes('select') && query.toLowerCase().includes('from')) {
-        const columnMatch = query.match(/select\s+(.+?)\s+from/i);
-        if (columnMatch) {
-          const selectedColumns = columnMatch[1].split(',').map(col => col.trim());
-          const limitMatch = query.match(/limit\s+(\d+)/i);
-          const limit = limitMatch ? parseInt(limitMatch[1]) : 5;
-          
-          const limitedData = data.slice(0, limit);
-          const values = limitedData.map(row => 
-            selectedColumns.map(col => row[col] || '')
-          );
-          
-          return {
-            columns: selectedColumns,
-            values: values
-          };
-        }
-      }
-      
-      // Default: return first 5 rows with all columns
+      const values = resultData.map((row: any) => 
+        resultColumns.map((col) => row[col])
+      );
+
       return {
-        columns: columns,
-        values: data.slice(0, 5).map(row => columns.map(col => row[col] || ''))
+        columns: resultColumns,
+        values: values
       };
-      
+
     } catch (error: any) {
-      return { 
-        columns: [], 
-        values: [], 
-        error: error.message 
+      console.error("SQL Error:", error);
+      return {
+        columns: [],
+        values: [],
+        error: error.message || "Invalid SQL Query"
       };
     }
-  }, [data, columns]);
+  }, []);
 
   return {
     loading,
     loadCSV,
     runQuery,
-    columns // Export columns so we can use them in the UI
+    columns,
   };
 }

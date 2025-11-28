@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BrowserSQL - SQL on CSV",
+  title: "BrowserSQL",
   description: "Run SQL on CSV files directly in your browser.",
 };
 
